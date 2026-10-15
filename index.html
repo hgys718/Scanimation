@@ -17,6 +17,11 @@
   --rule: #D4D6D2;
   --accent: #0B78A6;
   --barrier: #0D0F12;
+  /* Edge tints for the physical barrier. A laptop pixel is a red, green and blue stripe side by side; where a
+     slit edge cuts a white pixel, the left edge hides red (reads blue) and the right edge hides blue (reads
+     yellow). These match that, so the colour you see at an angle becomes part of the design. Kept pale. */
+  --fringe-left: #DDE7FF;
+  --fringe-right: #FFF0C8;
   --display: "Archivo", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
 }
@@ -44,26 +49,27 @@ button { font: inherit; color: var(--ink); background: transparent; border: 0; c
 .seg button + button { border-left: 1px solid var(--ink); }
 .seg button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
 .btn { border: 1px solid var(--ink); }
-/* Shared header: identical on both pages — title, view switch, then the page's own control and New strip. */
-.brand { display: flex; align-items: center; gap: 14px; }
-.seg a { color: var(--ink); text-decoration: none; padding: 5px 9px; line-height: 1.2; }
-.seg a + a { border-left: 1px solid var(--ink); }
-.seg a[aria-current="page"] { background: var(--ink); color: var(--paper); cursor: default; }
-.seg a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 button:focus-visible, a.btn:focus-visible, #stage:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 #stage { position: relative; overflow: hidden; touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; }
 #stage.dragging { cursor: grabbing; }
 .tile { position: absolute; left: 0; top: 0; will-change: transform; display: block; image-rendering: pixelated; }
-#grille { position: absolute; top: 0; bottom: 0; left: 0; pointer-events: none; will-change: transform; }
-#grille::before {
-  content: ""; position: absolute; inset: 0;
-  background-image: linear-gradient(90deg, transparent 0 var(--s), var(--barrier) var(--s) calc(var(--s) * 3));
-  background-size: calc(var(--s) * 3) 100%;
-  animation: slide .42s steps(3, end) infinite;
-}
-@keyframes slide { from { background-position-x: 0; } to { background-position-x: calc(var(--s) * 3); } }
+/* The barrier (press B) is fixed to the screen. It never moves on its own: the strip slides under it as you
+   press the arrow keys, and every slit-width of travel steps the animation to the next frame — a real scanimation. */
+#grille { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 body:not(.show-barrier) #grille { display: none; }
-@media (prefers-reduced-motion: reduce) { #grille::before { animation: none; } }
+/* Calibration (press C): a test pattern at the barrier's spacing; lay the printed barrier on it and adjust until
+   the broad bands disappear. Saved per browser, in device pixels per millimetre, so zooming doesn't undo it. */
+#calib { position: absolute; inset: 0; z-index: 5; display: none; background: #000; }
+body.calibrating #calib { display: block; }
+#calib canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+#calib .panel {
+  position: absolute; left: 50%; top: 16px; transform: translateX(-50%); max-width: calc(100% - 32px);
+  background: var(--paper); color: var(--ink); border: 1px solid var(--ink); padding: 12px 14px;
+  display: grid; gap: 8px; font-size: 12px; line-height: 1.45;
+}
+#calib .panel b { font-weight: 500; }
+#calib .card { height: 10px; border: 1px solid var(--ink); border-top: 0; box-sizing: border-box; }
+#calib .muted { color: var(--muted); }
 /* Hint shown when someone tries to scroll: the strip is driven by the arrow keys. */
 #hint {
   position: absolute; left: 50%; top: 50%; z-index: 3; pointer-events: none;
@@ -77,8 +83,12 @@ body:not(.show-barrier) #grille { display: none; }
 #scrim { position: absolute; inset: 0; z-index: 2; pointer-events: none; opacity: 0; transition: opacity .18s ease;
   background: rgba(21, 23, 26, .32); }
 /* the blur is applied to the artwork itself (not a backdrop filter), so it works the same in every browser, 3D included */
-#stage .tile, #grille { transition: filter .18s ease; }
-#stage.hinting .tile, #stage.hinting #grille { filter: blur(6px); }
+/* one physical pixel of pale blue on the left of every stripe, pale yellow on the right — on white only
+   (multiply leaves black ink untouched), and nearly invisible head-on. F toggles it for comparison. */
+#fringe { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; mix-blend-mode: multiply; }
+body.no-fringe #fringe { display: none; }
+#stage .tile, #grille, #fringe { transition: filter .18s ease; }
+#stage.hinting .tile, #stage.hinting #grille, #stage.hinting #fringe { filter: blur(6px); }
 #scrim.show { opacity: 1; }
 #hint .sep { color: var(--muted); }
 kbd {
@@ -86,37 +96,97 @@ kbd {
   border: 1px solid var(--ink); border-bottom-width: 2px;
 }
 @media (prefers-reduced-motion: reduce) { #hint, #scrim { transition: none; } }
+
+/* ---------- PDF dialog ---------- */
+#bk-dialog { position: fixed; inset: 0; z-index: 10; display: none; place-items: center; padding: 16px; background: rgba(21, 23, 26, .32); }
+#bk-dialog.open { display: grid; }
+#bk-dialog form { background: var(--paper); border: 1px solid var(--ink); padding: 18px; width: min(460px, 100%); display: grid; gap: 14px; }
+#bk-dialog h2 { margin: 0; font-family: var(--display); font-weight: 850; font-stretch: 70%; font-size: 18px; text-transform: uppercase; letter-spacing: -.01em; }
+#bk-dialog .row { display: grid; grid-template-columns: 96px 1fr; align-items: center; gap: 10px; }
+#bk-dialog .row > div { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+#bk-dialog input[type=number], #bk-dialog select { font: inherit; color: var(--ink); width: 76px; padding: 4px 6px; border: 1px solid var(--ink); background: var(--paper); border-radius: 0; }
+#bk-dialog select { width: auto; max-width: 100%; }
+#bk-dialog .note { color: var(--muted); line-height: 1.45; }
+#bk-dialog .err { color: #A12A2A; }
+#bk-dialog .actions { display: flex; justify-content: flex-end; gap: 8px; }
+#bk-dialog .primary { background: var(--ink); color: var(--paper); }
+#bk-dialog .primary:disabled { opacity: .6; cursor: progress; }
+#bk-dialog [hidden] { display: none !important; }
+#bk-swatch { display: block; border: 1px solid var(--rule); }
 </style>
 
 <header>
-  <div class="brand">
-    <h1>Scanimation</h1>
-    <nav class="seg" aria-label="View">
-      <a id="to-strip" href="index.html" aria-current="page">Strip</a>
-      <a id="to-volume" href="scanimation-volume.html">Volume</a>
-    </nav>
-  </div>
+  <h1>Scanimation</h1>
   <div class="controls">
-    <div class="group">
-      <span class="label" id="slit-label">Slit</span>
-      <div class="seg" role="group" aria-labelledby="slit-label" id="slit">
-        <button type="button" id="slit-2" data-v="2" aria-pressed="false">2px</button>
-        <button type="button" id="slit-3" data-v="3" aria-pressed="true">3px</button>
-        <button type="button" id="slit-4" data-v="4" aria-pressed="false">4px</button>
-        <button type="button" id="slit-6" data-v="6" aria-pressed="false">6px</button>
-      </div>
-    </div>
+    <button type="button" class="btn" id="cal-open" title="Match the stripes to your printed barrier (C)">Calibrate</button>
     <button type="button" class="btn" id="reseed" title="Generate a new strip (R)">New strip</button>
+    <button type="button" class="btn" id="bk-open" title="Download a booklet (one animation per page) or a long strip as a PDF">Download PDF</button>
+    <button type="button" class="btn" id="bar-open" title="Download the barrier grid as a PDF, to print on clear film">Print barrier</button>
   </div>
 </header>
 
-<main id="stage" tabindex="0" aria-label="Endless interlaced strip. Use the left and right arrow keys to move, up and down to change speed.">
-  <div id="grille"></div>
+<main id="stage" tabindex="0" aria-label="Endless interlaced strip. Use the left and right arrow keys to move, up and down to change speed, C to calibrate to the barrier.">
+  <canvas id="fringe" aria-hidden="true"></canvas>
+  <canvas id="grille" aria-hidden="true"></canvas>
+  <div id="calib" role="dialog" aria-label="Calibrate the stripe size to the printed barrier">
+    <canvas id="calib-pattern"></canvas>
+    <div class="panel">
+      <div><b id="calib-title">Calibrate to the barrier.</b> Lay the printed barrier over the screen. Broad light and dark bands mean the size is off.</div>
+      <div><kbd>←</kbd> <kbd>→</kbd> fine &nbsp; <kbd>↑</kbd> <kbd>↓</kbd> coarse &nbsp;·&nbsp; adjust until the bands spread out and vanish &nbsp;·&nbsp; <kbd>Enter</kbd> save &nbsp; <kbd>Esc</kbd> <span id="calib-esc">cancel</span></div>
+      <div class="muted">Rough start: the bar below should match the long edge of a bank card (85.6 mm).</div>
+      <div class="card" id="calib-card"></div>
+      <div class="muted" id="calib-readout"></div>
+    </div>
+  </div>
   <div id="scrim" aria-hidden="true"></div>
   <div id="hint" role="status" aria-live="polite">
-    <span><kbd>←</kbd> <kbd>→</kbd> to move</span><span class="sep">/</span><span><kbd>↑</kbd> <kbd>↓</kbd> to change speed</span>
+    <span><kbd>←</kbd> <kbd>→</kbd> to move</span><span class="sep">/</span><span><kbd>↑</kbd> <kbd>↓</kbd> to change speed</span><span class="sep">/</span><span><kbd>C</kbd> to calibrate</span>
   </div>
 </main>
+
+<div id="bk-dialog" role="dialog" aria-modal="true" aria-labelledby="bk-title">
+  <form id="bk-form">
+    <h2 id="bk-title">Download PDF</h2>
+    <div class="note" id="bk-intro"></div>
+    <div class="row" id="bk-kind-row"><span class="label">Format</span><div><div class="seg" role="group" aria-label="Format" id="bk-kind"><button type="button" data-v="book" aria-pressed="true">Booklet</button><button type="button" data-v="strip" aria-pressed="false">Long strip</button></div></div></div>
+
+    <div class="row" data-for="book"><label class="label" for="bk-count">Animations</label>
+      <div><input id="bk-count" type="number" min="1" max="60" value="12"><span class="note">one per page</span></div></div>
+    <div class="row" data-for="book barrier"><label class="label" for="bk-size" id="bk-size-l">Page size</label>
+      <div><select id="bk-size">
+        <option value="215.9x279.4">US Letter · 8.5 × 11 in</option>
+        <option value="139.7x215.9">Half Letter · 5.5 × 8.5 in</option>
+        <option value="210x297">A4 · 210 × 297 mm</option>
+        <option value="148x210">A5 · 148 × 210 mm</option>
+        <option value="203.2x203.2">Square · 8 × 8 in</option>
+        <option value="279.4x431.8" data-only="barrier">Tabloid · 11 × 17 in</option>
+        <option value="297x420" data-only="barrier">A3 · 297 × 420 mm</option>
+        <option value="custom">Custom…</option>
+      </select></div></div>
+    <div class="row" data-for="book barrier" data-custom hidden><span class="label">Custom</span>
+      <div><input id="bk-w" type="number" min="2" step="any" value="6" aria-label="Page width"> × <input id="bk-h" type="number" min="2" step="any" value="9" aria-label="Page height">
+        <div class="seg" role="group" aria-label="Unit" id="bk-dunit"><button type="button" data-v="in" aria-pressed="true">in</button><button type="button" data-v="mm" aria-pressed="false">mm</button></div></div></div>
+    <div class="row" data-for="barrier" hidden><span class="label">Orientation</span>
+      <div><div class="seg" role="group" aria-label="Orientation" id="bk-orient"><button type="button" data-v="landscape" aria-pressed="true">Landscape</button><button type="button" data-v="portrait" aria-pressed="false">Portrait</button></div></div></div>
+    <div class="row" data-for="book"><span class="label">Spreads</span>
+      <div><div class="seg" role="group" aria-label="Spread order" id="bk-order"><button type="button" data-v="reader" aria-pressed="true">Reading order</button><button type="button" data-v="printer" aria-pressed="false">Printer order</button></div></div></div>
+
+    <div class="row" data-for="strip" hidden><label class="label" for="bk-len">Length</label>
+      <div><input id="bk-len" type="number" min="5" max="300" step="any" value="100">
+        <div class="seg" role="group" aria-label="Unit" id="bk-unit"><button type="button" data-v="cm" aria-pressed="true">cm</button><button type="button" data-v="in" aria-pressed="false">in</button></div></div></div>
+
+    <div class="row"><span class="label">Bars</span>
+      <div><div class="seg" role="group" aria-label="Bar thickness" id="bk-bars"><button type="button" data-v="cal" aria-pressed="true">Calibrated</button><button type="button" data-v="custom" aria-pressed="false">Custom</button></div>
+        <span data-bars-custom hidden><input id="bk-bar" type="number" min=".3" max="20" step="any" value="2" aria-label="Bar thickness in mm"> mm</span></div></div>
+
+    <div class="row" data-for="barrier" hidden><span class="label">Preview</span>
+      <div><canvas id="bk-swatch" aria-label="The bars at their real size on this screen"></canvas><span class="note" id="bk-swatch-note"></span></div></div>
+    <div class="note" id="bk-summary"></div>
+    <div class="note" id="bk-scale-note">Print at <b>100% / actual size</b> (turn off “fit to page”), or the stripes won’t match the barrier.</div>
+    <div class="note err" id="bk-err" hidden></div>
+    <div class="actions"><button type="button" class="btn" id="bk-cancel">Cancel</button><button type="submit" class="btn primary" id="bk-go">Download PDF</button></div>
+  </form>
+</div>
 
 <footer>
   <span id="dist">0.0 cm</span>
@@ -127,6 +197,22 @@ kbd {
 (() => {
   const stage = document.getElementById('stage');
   const grille = document.getElementById('grille');
+  const fringe = document.getElementById('fringe');
+  const gctx = grille.getContext('2d'), fctx = fringe.getContext('2d');
+
+  // ---------- real-world size ----------
+  // The printed barrier sets the sizes: 1 mm clear gaps between 2 mm bars. So each frame's stripe
+  // must be exactly 1 mm wide on the glass, on any screen and at any zoom. A browser can't measure millimetres
+  // (CSS "mm" is a nominal 96-dpi guess), so each screen is calibrated once against the barrier itself (press C).
+  // The value is kept in device pixels per mm: zooming changes CSS pixels but not device pixels, so it still holds.
+  const GAP_MM = 1;                                            // the printed barrier: 1 mm clear gaps, bars twice that (2 mm)
+  const CAL_KEY = 'scanimation.devicePxPerMm';
+  const dpr = () => window.devicePixelRatio || 1;
+  let devPxPerMm = (() => { try { const v = +localStorage.getItem(CAL_KEY); if (v > 1 && v < 60) return v; } catch (e) {} return null; })();
+  const calibrated = devPxPerMm !== null;
+  if (!calibrated) devPxPerMm = 96 / 25.4 * dpr();            // uncalibrated: CSS's nominal millimetre
+  const cssPxPerMm = () => devPxPerMm / dpr();
+  const slitPx = () => GAP_MM * cssPxPerMm();      // stripe width in CSS px (fractional on purpose)
   const distEl = document.getElementById('dist');
   const speedEl = document.getElementById('speed');
 
@@ -266,9 +352,34 @@ kbd {
 
   const baseGen = j => hash(S.seed, j * 7 + 3) % GENS.length;
   function genIndex(i) { let g = baseGen(i); if (g === baseGen(i - 1)) g = (g + 1) % GENS.length; return g; }
+  // ---------- speed ramps ----------
+  // A motif's motion runs on a clock p from 0 to 1 over one loop, and the strip shows three moments of it.
+  // Linear timing takes them at 0, 1/3, 2/3: three equal steps. A ramp makes the steps unequal, so the motion
+  // reads as speeding up, slowing down or easing through the middle.
+  // Two limits keep every ramp readable with only three frames:
+  //  - no step over ~0.46 of the loop: the eye pairs each shape with the nearest one in the next frame, so a step
+  //    past half the repeat reads as moving backwards (the wagon-wheel effect);
+  //  - no step under 0.2: smaller, and two frames look the same and the motion stalls.
+  // Each ramp is its three steps (they add up to one loop).
+  const EASES = [
+    { name: 'linear',      w: 2, steps: [1 / 3, 1 / 3, 1 / 3] },
+    { name: 'ease in-out', w: 3, steps: [.27, .46, .27] },   // gentle, fast through the middle, gentle
+    { name: 'ease in',     w: 2, steps: [.22, .33, .45] },   // gathers speed
+    { name: 'ease out',    w: 2, steps: [.45, .33, .22] },   // lands softly
+    { name: 'hold',        w: 1, steps: [.2, .4, .4] },      // a beat of near-stillness, then moves on
+  ];
+  for (const e of EASES) e.at = [0, e.steps[0], e.steps[0] + e.steps[1]];   // the three sampled moments
+  const EASE_TOTAL = EASES.reduce((s, e) => s + e.w, 0);
+  // picked from its own seeded stream, so adding ramps didn't change which motifs a seed makes
+  function easeFor(j) {
+    let x = hash(S.seed ^ 0x51ED27A3, j) / 4294967296 * EASE_TOTAL;
+    for (const e of EASES) { if ((x -= e.w) < 0) return e; }
+    return EASES[0];
+  }
+
   function motif(j) {
     const G = GENS[genIndex(j)], r = mulberry32(hash(S.seed, j));
-    const P = G.setup(r); return { G, P, inv: false };
+    const P = G.setup(r); return { G, P, E: easeFor(j), inv: false };
   }
 
   // ---------- rendering ----------
@@ -321,7 +432,7 @@ kbd {
       }
       const out = new Uint8ClampedArray(W * H * 4);
       for (let x = 0; x < W; x++) {
-        const k = mod(Math.floor((i * W + x) / slit), 3);
+        const k = mod(Math.floor((i * W + x + .5) / slit), 3);   // slit may be fractional: assign by column centre, no drift
         let mode = 0, t = 0, ca, cb, za, zb;
         if (x < T) { mode = 1; t = (x + T) / (2 * T); ca = colOf(i - 1, x); cb = colOf(i, x); [za, zb] = zl[k]; }
         else if (x >= W - T) { mode = 1; t = (x - (W - T)) / (2 * T); ca = colOf(i, x); cb = colOf(i + 1, x); [za, zb] = zr[k]; }
@@ -389,11 +500,11 @@ kbd {
   function stepMotif(j) {
     const { W, H, T, M } = S, pad = T + M, EW = W + 2 * pad;
     if (!building || building.j !== j || building.gen !== gen) building = { j, gen, frames: [], m: motif(j) };
-    const { G, P, inv } = building.m, k = building.frames.length;
+    const { G, P, E, inv } = building.m, k = building.frames.length;
     const fg = inv ? S.colors.paper : S.colors.ink, bg = inv ? S.colors.ink : S.colors.paper, ch = S.colors.ch;
     sctx.setTransform(1, 0, 0, 1, 0, 0); sctx.fillStyle = bg; sctx.fillRect(0, 0, EW, H);
     sctx.translate(pad, 0); sctx.fillStyle = fg; sctx.strokeStyle = fg;
-    sctx.save(); G.draw(sctx, W, H, k / 3, k, P, fg, bg, -pad, W + pad); sctx.restore();
+    sctx.save(); G.draw(sctx, W, H, E.at[k], k, P, fg, bg, -pad, W + pad); sctx.restore();   // eased moment, not k/3
     const d = sctx.getImageData(0, 0, EW, H).data, u = new Uint8Array(EW * H);
     for (let n = 0, q = ch; n < u.length; n++, q += 4) u[n] = d[q];
     building.frames.push(u);
@@ -438,12 +549,43 @@ kbd {
     S.W = Math.max(260, Math.floor(Math.min(S.H * 1.05, Math.max(260, r.width * .9))));
     S.T = Math.round(S.W * .46);
     S.M = Math.max(24, Math.round(Math.min(S.W, S.H) * .12));
+    S.slit = slitPx();
+  }
+  // Barrier and edge tints are drawn on canvases at device resolution with exact (fractional) positions;
+  // CSS background tiles get rounded to whole pixels and would drift against the printed barrier.
+  function sizeCanvas(cv) {
+    const w = Math.round(stage.clientWidth * dpr()), h = Math.round(stage.clientHeight * dpr());
+    if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+  }
+  function drawBarrier(ctx, cv, gapColour, barColour) {   // fixed to the screen: gap, then two gaps' worth of bar
+    sizeCanvas(cv);
+    const g = S.slit * dpr(), period = 3 * g;
+    ctx.globalCompositeOperation = 'source-over'; ctx.fillStyle = barColour; ctx.fillRect(0, 0, cv.width, cv.height);
+    if (gapColour) { ctx.fillStyle = gapColour; } else { ctx.globalCompositeOperation = 'destination-out'; ctx.fillStyle = '#000'; }
+    for (let x = 0; x < cv.width; x += period) ctx.fillRect(x, 0, g, cv.height);
+    ctx.globalCompositeOperation = 'source-over';
+  }
+  let fringeAt = null;
+  function drawFringe() {             // one device pixel of tint at each edge of every stripe, wherever the stripes are now
+    const xr = Math.round(S.x), key = xr + ':' + S.slit + ':' + fringe.width;
+    if (key === fringeAt) return; fringeAt = key;
+    sizeCanvas(fringe);
+    const d = dpr(), s = S.slit, cs = getComputedStyle(document.documentElement);
+    fctx.clearRect(0, 0, fringe.width, fringe.height);
+    const firstCol = n => Math.ceil(n * s - .5);              // first CSS column of stripe n (matches the tiles)
+    const n0 = Math.floor(xr / s) - 1, n1 = Math.ceil((xr + stage.clientWidth) / s) + 1;
+    for (let n = n0; n <= n1; n++) {
+      const a = Math.round((firstCol(n) - xr) * d), b = Math.round((firstCol(n + 1) - xr) * d);
+      fctx.fillStyle = cs.getPropertyValue('--fringe-left'); fctx.fillRect(a, 0, 1, fringe.height);
+      fctx.fillStyle = cs.getPropertyValue('--fringe-right'); fctx.fillRect(b - 1, 0, 1, fringe.height);
+    }
   }
   function rebuild() {
     for (const el of tiles.values()) el.remove();
     tiles.clear(); cache.clear();
     configure();
-    grille.style.setProperty('--s', S.slit + 'px');
+    drawBarrier(gctx, grille, null, getComputedStyle(document.documentElement).getPropertyValue('--barrier'));
+    fringeAt = null; drawFringe();
   }
 
   // Keep the drawn position inside ready tiles so empty paper never shows.
@@ -529,13 +671,11 @@ kbd {
     for (const j of motifStore.keys()) if (Math.abs(j - c0) > AHEAD + 3 || (cache.has(j - 1) && cache.has(j) && cache.has(j + 1))) motifStore.delete(j);
     for (let i = first; i <= last; i++) {
       let el = tiles.get(i);
-      if (!el && cache.has(i)) { el = cache.get(i); stage.insertBefore(el, grille); tiles.set(i, el); }
+      if (!el && cache.has(i)) { el = cache.get(i); stage.insertBefore(el, fringe); tiles.set(i, el); }
       if (el) el.style.transform = `translate3d(${Math.round(i * W - S.x)}px,0,0)`;
     }
-    const sp = S.slit * 3, gx = Math.round(S.x);
-    grille.style.width = (vw + sp * 2) + 'px';
-    grille.style.transform = `translate3d(${-mod(gx, sp) - sp}px,0,0)`;
 
+    drawFringe();   // tints stay on the stripes as the strip moves
     distEl.textContent = (S.x / PX_PER_CM).toFixed(1) + ' cm';
     requestAnimationFrame(tick);
   }
@@ -566,12 +706,336 @@ kbd {
 
   function reseed() { S.seed = (Math.random() * 2 ** 32) >>> 0; S.x = S.target = S.vel = 0; S.follow = false; rebuild(); }
   document.getElementById('reseed').addEventListener('click', reseed);
-  document.getElementById('slit').addEventListener('click', e => {
+
+  // ---------- PDF: booklet or long strip ----------
+  // Everything is drawn at a real barrier size, so the paper works under a printed barrier (a PDF measures true
+  // millimetres; it only has to be printed at 100%). Bars: the calibrated barrier (2 mm bars, 1 mm gaps), or a
+  // custom bar thickness — the gap is always half the bar, since three frames share each repeat.
+  //  - Booklet: any page size, laid out as spreads with InDesign-style crop marks; reading or printer (saddle-stitch) order.
+  //  - Long strip: the strip itself, motifs melting into each other, as one continuous page of the chosen length.
+  // Both start from the motif in the middle of the screen.
+  const PX_MM = 12;                                          // ≈ 305 dpi
+  const STRIP_H = 101.6, MAX_STRIP_MM = 3000;                // strip is 4 in tall
+  // InDesign's printer's-mark defaults: 0.25 pt crop marks, offset 0.0833 in from the trim, 0.25 in long, 6 pt page info
+  const MARK = { weight: .25 * .3528, offset: 0.0833 * 25.4, length: 0.25 * 25.4, slug: 0.5 * 25.4 };
+  const bk = { kind: 'book', unit: 'cm', dunit: 'in', order: 'reader', bars: 'cal', orient: 'landscape' };
+  const $ = id => document.getElementById(id);
+  const bkDialog = $('bk-dialog'), bkCount = $('bk-count'), bkLen = $('bk-len'), bkSummary = $('bk-summary'), bkErr = $('bk-err'), bkGo = $('bk-go');
+  const stripMm = () => Math.max(50, Math.min(MAX_STRIP_MM, (+bkLen.value || 0) * (bk.unit === 'in' ? 25.4 : 10)));
+  const nAnim = () => Math.max(1, Math.min(60, bkCount.value | 0 || 1));
+  const fmtLen = mm => bk.unit === 'in' ? `${+(mm / 25.4).toFixed(2)} in` : `${+(mm / 10).toFixed(1)} cm`;
+  const fmtMm = mm => `${+mm.toFixed(2)} mm`;
+  const gapMm = () => bk.bars === 'custom' ? Math.max(.15, Math.min(10, (+$('bk-bar').value || 2) / 2)) : GAP_MM;
+  function pageMm() {
+    const v = $('bk-size').value;
+    if (v !== 'custom') return v.split('x').map(Number);
+    const k = bk.dunit === 'in' ? 25.4 : 1, c = x => Math.max(50, Math.min(600, (+x || 0) * k));
+    return [c($('bk-w').value), c($('bk-h').value)];
+  }
+  const barrierSheet = () => { const [a, b] = pageMm(), lo = Math.min(a, b), hi = Math.max(a, b); return bk.orient === 'landscape' ? [hi, lo] : [lo, hi]; };
+  const pageTotal = n => Math.ceil((n + 2) / 4) * 4;         // covers + animations, padded to whole folded sheets
+  function bkUpdate() {
+    document.querySelectorAll('#bk-form [data-for]').forEach(r => r.hidden = !r.dataset.for.split(' ').includes(bk.kind));
+    document.querySelector('[data-custom]').hidden = bk.kind === 'strip' || $('bk-size').value !== 'custom';
+    $('bk-size-l').textContent = bk.kind === 'barrier' ? 'Sheet' : 'Page size';
+    for (const o of $('bk-size').options) if (o.dataset.only) { o.hidden = o.disabled = bk.kind !== o.dataset.only; }
+    if ($('bk-size').selectedOptions[0]?.disabled) $('bk-size').value = '215.9x279.4';
+    document.querySelector('[data-bars-custom]').hidden = bk.bars !== 'custom';
+    const g = gapMm(), bars = `${fmtMm(2 * g)} bars, ${fmtMm(g)} gaps`;
+    if (bk.kind === 'book') {
+      const n = nAnim(), T = pageTotal(n), [w, h] = pageMm(), sw = 2 * w + 2 * MARK.slug, sh = h + 2 * MARK.slug;
+      const inch = mm => +(mm / 25.4).toFixed(1);
+      bkSummary.textContent = `${T} pages of ${fmtMm(w)} × ${fmtMm(h)} as ${T / 2} spreads with crop marks (${bk.order === 'reader' ? 'reading order' : 'printer order: print double-sided, fold, staple'}). `
+        + `Each spread sheet is ${Math.round(sw)} × ${Math.round(sh)} mm (${inch(sw)} × ${inch(sh)} in). `
+        + (T > n + 2 ? `${T - n - 2} blank page${T - n - 2 > 1 ? 's' : ''} before the back cover. ` : '') + `For ${bars}.`;
+    } else if (bk.kind === 'barrier') {
+      const [w, h] = barrierSheet(); drawSwatch();
+      bkSummary.textContent = `One ${fmtMm(w)} × ${fmtMm(h)} sheet of vertical bars: ${bars}. Print on clear film (transparency) at 100%, then check the 50 mm line in the margin with a ruler.`;
+    } else {
+      const mm = stripMm();
+      bkSummary.textContent = `One continuous page, ${fmtLen(mm)} long and 4 in (10.2 cm) tall, about ${Math.max(1, Math.round(mm / (STRIP_H * 1.05)))} motifs, for ${bars}. Long strips take a while to render.`;
+    }
+  }
+  const segPick = (id, key, onChange) => $(id).addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
-    S.slit = +b.dataset.v; document.querySelectorAll('#slit button').forEach(x => x.setAttribute('aria-pressed', x === b));
-    rebuild();
+    if (onChange) onChange(b.dataset.v); else bk[key] = b.dataset.v;
+    document.querySelectorAll(`#${id} button`).forEach(x => x.setAttribute('aria-pressed', x === b)); bkUpdate();
   });
+  segPick('bk-kind', 'kind'); segPick('bk-order', 'order'); segPick('bk-bars', 'bars'); segPick('bk-orient', 'orient');
+  segPick('bk-unit', 'unit', v => {                         // keep the same length when switching units
+    if (v === bk.unit) return; const mm = stripMm(); bk.unit = v;
+    bkLen.value = v === 'in' ? +(mm / 25.4).toFixed(2) : +(mm / 10).toFixed(1);
+    bkLen.max = v === 'in' ? Math.round(MAX_STRIP_MM / 25.4) : MAX_STRIP_MM / 10; bkLen.min = v === 'in' ? 2 : 5;
+  });
+  segPick('bk-dunit', 'dunit', v => {                       // same for the custom page size
+    if (v === bk.dunit) return; const [w, h] = pageMm(); bk.dunit = v;
+    const f = mm => v === 'in' ? +(mm / 25.4).toFixed(3) : +mm.toFixed(1); $('bk-w').value = f(w); $('bk-h').value = f(h);
+  });
+  for (const id of ['bk-count', 'bk-len', 'bk-w', 'bk-h', 'bk-bar']) $(id).addEventListener('input', bkUpdate);
+  $('bk-size').addEventListener('change', bkUpdate);
+  const bkIsOpen = () => bkDialog.classList.contains('open');
+  // Two separate pop-ups from one form: "Download PDF" (booklet or long strip) and "Print barrier" (the grid only).
+  function setKind(v) { bk.kind = v; document.querySelectorAll('#bk-kind button').forEach(x => x.setAttribute('aria-pressed', x.dataset.v === v)); }
+  let goLabel = 'Download PDF';
+  function bkOpen(mode) {
+    const barrier = mode === 'barrier';
+    if (barrier) setKind('barrier'); else if (bk.kind === 'barrier') setKind('book');
+    bkDialog.classList.toggle('barrier', barrier);
+    $('bk-title').textContent = barrier ? 'Print barrier grid' : 'Download PDF';
+    $('bk-intro').textContent = barrier
+      ? 'The black-line grid that goes over the screen or the printed pages. Print it on clear film (transparency).'
+      : 'Print the strip: a booklet of single animations, or one long continuous strip.';
+    $('bk-kind-row').hidden = barrier;
+    $('bk-scale-note').hidden = barrier;                  // the barrier summary carries its own 100% / 50 mm note
+    goLabel = barrier ? 'Download barrier PDF' : 'Download PDF'; progress(goLabel);
+    intent.keys.clear(); bkErr.hidden = true; bkDialog.classList.add('open'); bkUpdate(); bkGo.focus();
+  }
+  $('bar-open').addEventListener('click', () => bkOpen('barrier'));
+  // a few repeats of the bars at their true size on this screen (uses the calibration)
+  function drawSwatch() {
+    const cv = $('bk-swatch'), d = dpr(), pxmm = cssPxPerMm(), g = gapMm(), wMm = Math.max(18, Math.min(45, 9 * g * 3)), hMm = 10;
+    cv.style.width = wMm * pxmm + 'px'; cv.style.height = hMm * pxmm + 'px';
+    cv.width = Math.round(wMm * pxmm * d); cv.height = Math.round(hMm * pxmm * d);
+    const c = cv.getContext('2d'); c.fillStyle = '#fff'; c.fillRect(0, 0, cv.width, cv.height); c.fillStyle = '#000';
+    for (let x = g; x < wMm; x += 3 * g) c.fillRect(x * pxmm * d, 0, Math.min(2 * g, wMm - x) * pxmm * d, cv.height);
+    let cal_ = calibrated; try { cal_ = cal_ || !!localStorage.getItem(CAL_KEY); } catch (e) {}
+    $('bk-swatch-note').textContent = cal_ ? 'actual size on this screen' : 'approximate until you calibrate';
+  }
+  function bkClose() { if (bkGo.disabled) return; bkDialog.classList.remove('open'); stage.focus({ preventScroll: true }); }
+  $('bk-open').addEventListener('click', () => bkOpen('pdf'));
+  $('bk-cancel').addEventListener('click', bkClose);
+  bkDialog.addEventListener('click', e => { if (e.target === bkDialog) bkClose(); });
+
+  let jsPDFReady = null;                                     // jsPDF is loaded only when a PDF is made
+  function loadJsPDF() {
+    return jsPDFReady ??= new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+      s.onload = () => res(window.jspdf.jsPDF); s.onerror = () => { jsPDFReady = null; rej(new Error('Could not load the PDF library — check the internet connection.')); };
+      document.head.appendChild(s);
+    });
+  }
+  const tick0 = () => new Promise(r => setTimeout(r, 0));
+  const progress = s => { bkGo.textContent = s; };
+
+  // text set in the page's own typefaces, as a crisp image at print resolution
+  function textImg(lines, { size = 9, font = 'mono', weight = 400, width = null, lh = 1.5 }) {
+    const px = size * .3528 * PX_MM, fam = font === 'display' ? '"Archivo", "Arial Narrow", sans-serif' : '"IBM Plex Mono", ui-monospace, Menlo, monospace';
+    const c = document.createElement('canvas').getContext('2d');
+    const set = ctx => { ctx.font = `${weight} ${px}px ${fam}`; if (font === 'display' && 'fontStretch' in ctx) ctx.fontStretch = 'condensed'; ctx.textBaseline = 'alphabetic'; };
+    set(c);
+    // wrap to width (mm) if given
+    const out = [];
+    for (const ln of lines) {
+      if (!width) { out.push(ln); continue; }
+      let cur = '';
+      for (const w of ln.split(' ')) { const tryL = cur ? cur + ' ' + w : w; if (c.measureText(tryL).width / PX_MM > width && cur) { out.push(cur); cur = w; } else cur = tryL; }
+      out.push(cur);
+    }
+    const W = Math.ceil(Math.max(1, ...out.map(l => c.measureText(l).width)) + 2), H = Math.ceil(px * lh * out.length + px * .4);
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const x = cv.getContext('2d'); set(x); x.fillStyle = '#000';
+    out.forEach((l, i) => x.fillText(l, 1, px * (1 + i * lh)));
+    return { cv, w: W / PX_MM, h: H / PX_MM };
+  }
+  const put = (doc, img, xMm, yMm) => doc.addImage(img.cv, 'PNG', xMm, yMm, img.w, img.h, undefined, 'FAST');
+
+  // one motif, its three frames interlaced at the barrier's size (black ink on clear, so the paper shows through)
+  function motifImg(j, wMm, hMm, gap) {
+    const stripe = gap * PX_MM;
+    const W = Math.round(wMm * PX_MM / (3 * stripe)) * 3 * stripe, H = Math.round(hMm * PX_MM);
+    const m = motif(j), cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const c = cv.getContext('2d', { willReadFrequently: true }), frames = [];
+    for (let k = 0; k < 3; k++) {
+      c.setTransform(1, 0, 0, 1, 0, 0); c.fillStyle = '#fff'; c.fillRect(0, 0, W, H); c.fillStyle = '#000'; c.strokeStyle = '#000';
+      c.save(); m.G.draw(c, W, H, m.E.at[k], k, m.P, '#000', '#fff', 0, W); c.restore();
+      frames.push(c.getImageData(0, 0, W, H).data);
+    }
+    const out = c.createImageData(W, H), o = out.data;
+    for (let x = 0; x < W; x++) {
+      const f = frames[Math.floor((x + .5) / stripe) % 3];
+      for (let y = 0, q = x * 4; y < H; y++, q += W * 4) { o[q] = o[q + 1] = o[q + 2] = 0; o[q + 3] = 255 - f[q]; }
+    }
+    c.putImageData(out, 0, 0);
+    return { cv, w: W / PX_MM, h: H / PX_MM };
+  }
+
+  async function makeBooklet(jsPDF) {
+    const n = nAnim(), T = pageTotal(n), j0 = Math.floor((S.x + stage.clientWidth / 2) / S.W);
+    const [PW, PH] = pageMm(), gap = gapMm(), seedHex = S.seed.toString(16).toUpperCase();
+    const s = Math.min(PW, PH) / 215.9;                       // type and margins scale with the page (1 = US Letter)
+    const margin = Math.max(8, 19 * s), small = Math.max(6.5, 9 * s);
+    const artW = PW - 2 * margin, artH = Math.min(artW / 1.05, PH - 2 * margin - 18 * s);
+    const SL = MARK.slug, sheetW = 2 * PW + 2 * SL, sheetH = PH + 2 * SL;
+    const doc = new jsPDF({ unit: 'mm', format: [sheetW, sheetH], orientation: sheetW >= sheetH ? 'landscape' : 'portrait', compress: true });
+    doc.setProperties({ title: `Scanimation · seed ${seedHex}`, subject: `${n} animations · ${fmtMm(PW)} × ${fmtMm(PH)} · ${fmtMm(2 * gap)} bars, ${fmtMm(gap)} gaps` });
+    const date = new Date(), stamp = `${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+    const fileName = `scanimation-booklet-${seedHex}-${n}.pdf`;
+
+    // each page is drawn at an origin (ox, oy) = its trim corner on the sheet
+    const at = (img, ox, oy, x, y) => put(doc, img, ox + x, oy + y);
+    const centreX = (img, ox) => ox + (PW - img.w) / 2;
+    const pageFns = {};
+    pageFns[1] = (ox, oy) => {                               // front cover: title, its own motif, specs
+      at(textImg(['SCANIMATION'], { font: 'display', weight: 850, size: 54 * s, lh: 1 }), ox, oy, margin, margin);
+      const cov = motifImg(j0 + n, artW, artH * .86, gap);
+      put(doc, cov, centreX(cov, ox), oy + (PH - cov.h) / 2 + 8 * s);
+      at(textImg([`${n} animation${n > 1 ? 's' : ''} · seed ${seedHex}`, `for a barrier with ${fmtMm(2 * gap)} bars and ${fmtMm(gap)} gaps`], { size: small }), ox, oy, margin, PH - margin - small * .3528 * 3.4);
+    };
+    for (let a = 0; a < n; a++) pageFns[2 + a] = (ox, oy) => {  // one animation per page, numbered
+      const img = motifImg(j0 + a, artW, artH, gap);
+      put(doc, img, centreX(img, ox), oy + (PH - img.h) / 2 - 6 * s);
+      const num = textImg([String(a + 1).padStart(2, '0')], { size: small, weight: 500 });
+      put(doc, num, centreX(num, ox), oy + PH - margin - num.h + 2 * s);
+    };
+    pageFns[T] = (ox, oy) => {                               // back cover: how to look
+      at(textImg(['HOW TO LOOK'], { font: 'display', weight: 850, size: 22 * s, lh: 1 }), ox, oy, margin, margin);
+      at(textImg([
+        'Lay the barrier over a page with its lines running top to bottom.', '',
+        `Slide it slowly sideways. Every ${fmtMm(gap)} of travel shows the next frame; three frames make one loop.`, '',
+        'Each drawing comes from the same generator as the strip on screen. Turn the page for the next.'], { size: Math.max(7.5, 11 * s), width: PW - 2 * margin, lh: 1.55 }), ox, oy, margin, margin + 14 * s);
+      at(textImg([`Scanimation · seed ${seedHex} · ${date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}`], { size: small }), ox, oy, margin, PH - margin - 5 * s);
+    };
+
+    // spreads: reading order = [back | front], [2 | 3] … [T-2 | T-1]; printer order = the saddle-stitch imposition
+    const spreads = [];
+    if (bk.order === 'reader') { spreads.push([T, 1]); for (let p = 2; p < T; p += 2) spreads.push([p, p + 1]); }
+    else for (let i = 0; i < T / 4; i++) spreads.push([T - 2 * i, 1 + 2 * i], [2 + 2 * i, T - 1 - 2 * i]);
+
+    // InDesign-style printer's marks: crop marks at the four outer trim corners (none at the spine),
+    // 0.25 pt, starting 0.0833 in outside the trim, and a 6 pt page-information line in the slug
+    const cropMarks = () => {
+      const x0 = SL, x1 = SL + 2 * PW, y0 = SL, y1 = SL + PH, o = MARK.offset, L = MARK.length;
+      doc.setDrawColor(0); doc.setLineWidth(MARK.weight);
+      for (const [x, dx] of [[x0, -1], [x1, 1]]) for (const [y, dy] of [[y0, -1], [y1, 1]]) {
+        doc.line(x + dx * o, y, x + dx * (o + L), y);         // horizontal mark on the trim line
+        doc.line(x, y + dy * o, x, y + dy * (o + L));         // vertical mark on the trim line
+      }
+    };
+    for (let i = 0; i < spreads.length; i++) {
+      progress(`Spread ${i + 1} / ${spreads.length}…`); await tick0();
+      if (i) doc.addPage([sheetW, sheetH], sheetW >= sheetH ? 'landscape' : 'portrait');
+      const [l, r] = spreads[i];
+      if (pageFns[l]) pageFns[l](SL, SL);
+      if (pageFns[r]) pageFns[r](SL + PW, SL);
+      cropMarks();
+      const info = textImg([`${fileName}   Pages ${l}–${r}   ${stamp}`], { size: 6, font: 'mono' });
+      put(doc, info, SL + MARK.offset + 1.5, SL + PH + MARK.offset + MARK.length - info.h + 1);   // clear of the crop mark, like InDesign's page information
+    }
+    return { doc, name: fileName };
+  }
+
+  // The barrier: vertical bars drawn as vector rectangles (exact edges at any printer resolution), a gap then a bar,
+  // inside a margin printers can reach; the margin carries the spec and a 50 mm line to check the print scale.
+  async function makeBarrier(jsPDF) {
+    const [W, H] = barrierSheet(), g = gapMm(), bar = 2 * g, m = 6.35, foot = 9;   // 0.25 in margin, label strip below
+    const doc = new jsPDF({ unit: 'mm', format: [W, H], orientation: W >= H ? 'landscape' : 'portrait', compress: true });
+    doc.setProperties({ title: `Scanimation barrier · ${fmtMm(bar)} bars, ${fmtMm(g)} gaps` });
+    progress('Drawing…'); await tick0();
+    const x0 = m, x1 = W - m, y0 = m, y1 = H - m - foot;
+    doc.setFillColor(0, 0, 0);
+    for (let x = x0 + g; x < x1; x += 3 * g) doc.rect(x, y0, Math.min(bar, x1 - x), y1 - y0, 'F');
+    // scale check: a 50 mm line with end ticks, and the spec
+    const ly = H - m - 3;
+    doc.setDrawColor(0); doc.setLineWidth(.25);
+    doc.line(x0, ly, x0 + 50, ly); doc.line(x0, ly - 2, x0, ly + 1); doc.line(x0 + 50, ly - 2, x0 + 50, ly + 1);
+    const lab = textImg([`← this line is 50 mm when printed at 100% ·  Scanimation barrier · ${fmtMm(bar)} bars, ${fmtMm(g)} gaps · lines run top to bottom`], { size: 6.5 });
+    put(doc, lab, x0 + 53, ly - lab.h + 1.3);
+    return { doc, name: `scanimation-barrier-${+bar.toFixed(2)}mm-${Math.round(W)}x${Math.round(H)}.pdf` };
+  }
+
+  // The long strip uses the screen's own pipeline (motifs melting into each other) at print resolution,
+  // in its own workers so the strip on screen keeps running.
+  async function makeStrip(jsPDF) {
+    const L = stripMm(), H = Math.round(STRIP_H * PX_MM), W = Math.round(H * 1.05), T = Math.round(W * .46), M = Math.max(24, Math.round(Math.min(W, H) * .12));
+    const pad = T + M, EW = W + 2 * pad, stripe = gapMm() * PX_MM, seedHex = S.seed.toString(16).toUpperCase();
+    const j0 = Math.floor((S.x + stage.clientWidth / 2) / S.W), count = Math.ceil(L * PX_MM / W);
+    const doc = new jsPDF({ unit: 'mm', format: [L, STRIP_H], orientation: L >= STRIP_H ? 'landscape' : 'portrait', compress: true });
+    doc.setProperties({ title: `Scanimation strip · seed ${seedHex} · ${fmtLen(L)}` });
+    const sc = document.createElement('canvas'); sc.width = EW; sc.height = H;
+    const sx = sc.getContext('2d', { willReadFrequently: true });
+    const frames = new Map();
+    const framesOf = j => {                                  // three frames of motif j, extended past its cell so it can melt
+      if (frames.has(j)) return frames.get(j);
+      const m = motif(j), fr = [];
+      for (let k = 0; k < 3; k++) {
+        sx.setTransform(1, 0, 0, 1, 0, 0); sx.fillStyle = '#fff'; sx.fillRect(0, 0, EW, H);
+        sx.translate(pad, 0); sx.fillStyle = '#000'; sx.strokeStyle = '#000';
+        sx.save(); m.G.draw(sx, W, H, m.E.at[k], k, m.P, '#000', '#fff', -pad, W + pad); sx.restore();
+        const d = sx.getImageData(0, 0, EW, H).data, u = new Uint8Array(EW * H);
+        for (let n = 0, q = 0; n < u.length; n++, q += 4) u[n] = d[q];
+        fr.push(u);
+      }
+      frames.set(j, fr); return fr;
+    };
+    const C = { gen: 1, W, H, T, M, slit: stripe, seed: S.seed | 0, cell: Math.max(40, H * .2), EW, pv: 255, iv: 0, P: [255, 255, 255], I: [0, 0, 0] };
+    const nW = Math.max(1, Math.min(NW, count)), per = Math.ceil(count / nW);
+    const tileCv = document.createElement('canvas'); tileCv.width = W; tileCv.height = H;
+    const tctx = tileCv.getContext('2d');
+    let done = 0;
+    progress(`Rendering 0 / ${count}…`);
+    const run = async w => {                                 // each worker takes a contiguous run of tiles
+      const wk = new Worker(workerURL), held = new Set();
+      wk.postMessage({ type: 'config', C });
+      try {
+        for (let i = j0 + w * per; i < Math.min(j0 + count, j0 + (w + 1) * per); i++) {
+          for (const j of [i - 1, i, i + 1]) if (!held.has(j)) { wk.postMessage({ type: 'motif', gen: 1, j, frames: framesOf(j) }); held.add(j); await tick0(); }
+          for (const j of [...held]) if (j < i - 1) { wk.postMessage({ type: 'drop', j }); held.delete(j); }
+          const px = await new Promise(res => { wk.onmessage = ({ data }) => res(data.px); wk.postMessage({ type: 'tile', gen: 1, i }); });
+          tctx.putImageData(new ImageData(px, W, H), 0, 0);
+          doc.addImage(tileCv, 'PNG', (i - j0) * W / PX_MM, 0, W / PX_MM, H / PX_MM, `t${i}`, 'FAST');
+          progress(`Rendering ${++done} / ${count}…`);
+        }
+      } finally { wk.terminate(); }
+    };
+    await Promise.all(Array.from({ length: nW }, (_, w) => run(w)));
+    return { doc, name: `scanimation-strip-${seedHex}-${fmtLen(L).replace(/\s/g, '')}.pdf` };
+  }
+
+  $('bk-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    bkErr.hidden = true; bkGo.disabled = true;
+    try {
+      progress('Loading…');
+      const jsPDF = await loadJsPDF();
+      const { doc, name } = bk.kind === 'book' ? await makeBooklet(jsPDF) : bk.kind === 'barrier' ? await makeBarrier(jsPDF) : await makeStrip(jsPDF);
+      progress('Saving…'); await tick0();
+      doc.save(name);
+      bkGo.disabled = false; bkClose();
+    } catch (err) {
+      bkErr.textContent = err.message || String(err); bkErr.hidden = false;
+    } finally { bkGo.disabled = false; progress(goLabel); }
+  });
+
+  // ---------- calibration (C) ----------
+  const calib = document.getElementById('calib'), calCv = document.getElementById('calib-pattern'), calCtx = calCv.getContext('2d');
+  let cal = null;                                            // device px per mm being tried
+  function drawCal() {
+    const saved = S.slit; S.slit = GAP_MM * cal / dpr();
+    drawBarrier(calCtx, calCv, '#fff', '#000');              // white gaps on black, same spacing as the print
+    S.slit = saved;
+    document.getElementById('calib-card').style.width = (85.6 * cal / dpr()) + 'px';
+    document.getElementById('calib-readout').textContent =
+      `1 mm = ${(cal / dpr()).toFixed(3)} px at this zoom · barrier: ${+GAP_MM.toFixed(2)} mm gaps, ${+(2 * GAP_MM).toFixed(2)} mm bars`;
+  }
+  document.getElementById('cal-open').addEventListener('click', e => { e.currentTarget.blur(); openCal(); });   // Enter in calibration must not re-click the button
+  function openCal() { cal = devPxPerMm; document.body.classList.add('calibrating'); intent.keys.clear(); drawCal(); }
+  function closeCal(save) {
+    document.getElementById('calib-title').textContent = 'Calibrate to the barrier.';
+    document.getElementById('calib-esc').textContent = 'cancel';
+    if (save) { devPxPerMm = cal; try { localStorage.setItem(CAL_KEY, String(cal)); } catch (e) {} }
+    cal = null; document.body.classList.remove('calibrating');
+    if (save) { const u = S.x / S.W; layout(); S.x = S.target = u * S.W; rebuild(); }
+  }
   window.addEventListener('keydown', e => {
+    if (bkIsOpen()) { if (e.key === 'Escape') bkClose(); return; }   // the booklet dialog has the keyboard
+    if (cal !== null) {                                      // while calibrating, keys adjust the scale only
+      const f = { ArrowRight: 1.0005, ArrowLeft: 1 / 1.0005, ArrowUp: 1.01, ArrowDown: 1 / 1.01 }[e.key];
+      if (f) { cal *= f; drawCal(); e.preventDefault(); }
+      else if (e.key === 'Enter') { closeCal(true); e.preventDefault(); }
+      else if (e.key === 'Escape' || e.key === 'c' || e.key === 'C') { closeCal(false); e.preventDefault(); }
+      return;
+    }
     if (e.target.closest && e.target.closest('button') && (e.key === ' ' || e.key === 'Enter')) return;
     if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { intent.keys.add(e.key); S.follow = false; hideHint(); e.preventDefault(); }
     else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
@@ -579,28 +1043,30 @@ kbd {
       showSpeed(); e.preventDefault();
     }
     else if (e.key === 'r' || e.key === 'R') reseed();
+    else if (e.key === 'b' || e.key === 'B') document.body.classList.toggle('show-barrier');   // preview the animation through a barrier
+    else if (e.key === 'f' || e.key === 'F') document.body.classList.toggle('no-fringe');      // compare with / without the edge tints
+    else if (e.key === 'c' || e.key === 'C') openCal();                                          // match the stripes to the printed barrier
   });
 
   window.addEventListener('keyup', e => intent.keys.delete(e.key));
   window.addEventListener('blur', () => intent.keys.clear());
 
   let rt;
-  window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { const u = S.x / S.W; layout(); S.x = S.target = u * S.W; rebuild(); }, 150); });
+  // zooming fires resize and changes devicePixelRatio; the stripe width is re-derived so it stays the same millimetres
+  window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { const u = S.x / S.W; layout(); S.x = S.target = u * S.W; rebuild(); if (cal !== null) drawCal(); }, 150); });
   const onTheme = () => { readColors(); rebuild(); };
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', onTheme);
   new MutationObserver(onTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
-  // the volume page sends you back to the motif you were looking at
-  const startJ = new URLSearchParams(location.search).get('j');
-  document.getElementById('to-strip').addEventListener('click', e => e.preventDefault());
-  document.getElementById('to-volume').addEventListener('click', e => {
-    const j = Math.floor((S.x + stage.clientWidth / 2) / S.W);
-    e.currentTarget.href = `scanimation-volume.html?seed=${S.seed}&j=${j}`;
-  });
   function start() {
     readColors(); layout();
-    if (startJ !== null) S.x = S.target = (+startJ | 0) * S.W + S.W / 2 - stage.clientWidth / 2;
     rebuild(); requestAnimationFrame(tick);
+    // First visit in this browser (nothing calibrated yet): calibration comes first; Esc skips it for now.
+    if (!calibrated) {
+      document.getElementById('calib-title').textContent = 'Before you start: calibrate to the barrier.';
+      document.getElementById('calib-esc').textContent = 'skip for now';
+      openCal();
+    }
   }
   (document.fonts && document.fonts.load ? Promise.race([document.fonts.load('900 100px Archivo'), new Promise(r => setTimeout(r, 1500))]) : Promise.resolve()).then(start, start);
 })();
